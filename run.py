@@ -195,6 +195,9 @@ You can launch the evaluation by setting either --data and --model or --config.
     parser.add_argument(
         '--use-vllm', action='store_true', help='use vllm to generate, the flag is only supported in Llama4 for now')
     parser.add_argument('--use-verifier', action='store_true', help='use verifier to evaluate')
+    parser.add_argument(
+        '--model-path', type=str, default=None,
+        help='Override the model_path for a registered model (e.g. path to a finetuned checkpoint)')
 
     args = parser.parse_args()
     return args
@@ -220,6 +223,19 @@ def main():
 
     if 'MMEVAL_ROOT' in os.environ:
         args.work_dir = os.environ['MMEVAL_ROOT']
+
+    # Override model_path for a registered model (e.g. finetuned checkpoint).
+    # Also forwards use_vllm into the model partial so the model constructor
+    # receives it directly (avoids leaking use_vllm into judge_kwargs).
+    if args.model_path is not None:
+        assert len(args.model) == 1, '--model-path requires exactly one --model'
+        model_name = args.model[0]
+        assert model_name in supported_VLM, f'Model {model_name!r} not found in supported_VLM'
+        orig = supported_VLM[model_name]
+        overrides = {'model_path': args.model_path}
+        if args.use_vllm:
+            overrides['use_vllm'] = True
+        supported_VLM[model_name] = partial(orig.func, *orig.args, **{**orig.keywords, **overrides})
 
     if not use_config:
         for k, v in supported_VLM.items():
@@ -415,7 +431,9 @@ def main():
 
                 if args.use_verifier:
                     judge_kwargs['use_verifier'] = True
-                if args.use_vllm:
+                # Only propagate use_vllm to judge when not using an explicit
+                # judge endpoint — external API judges don't understand this flag.
+                if args.use_vllm and args.judge is None:
                     judge_kwargs['use_vllm'] = True
 
                 if RANK == 0:

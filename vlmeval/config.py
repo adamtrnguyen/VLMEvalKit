@@ -2131,10 +2131,16 @@ interns1_series = {}
 for group in interns1_groups:
     interns1_series.update(group)
     
+llava15_hf_series = {
+    'llava-1.5-7b-hf': partial(LLaVA15Eval, model_path='llava-hf/llava-1.5-7b-hf'),
+    'llava-1.5-13b-hf': partial(LLaVA15Eval, model_path='llava-hf/llava-1.5-13b-hf'),
+}
+
 supported_VLM = {}
 
 model_groups = [
-    ungrouped, o1_apis, api_models, xtuner_series, qwen_series, llava_series, granite_vision_series,
+    ungrouped, o1_apis, api_models, xtuner_series, qwen_series, llava_series, llava15_hf_series,
+    granite_vision_series,
     internvl_series, yivl_series, xcomposer_series, minigpt4_series, 
     idefics_series, instructblip_series, deepseekvl_series, deepseekvl2_series, deepseekocr_series,
     janus_series, minicpm_series, cogvlm_series, wemm_series, cambrian_series, 
