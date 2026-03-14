@@ -115,6 +115,7 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         'Llama-4' in model_name
         or 'Qwen2-VL' in model_name
         or 'Qwen2.5-VL' in model_name
+        or 'llava-1.5' in model_name
     ):
         kwargs = {'use_vllm': use_vllm}
 
@@ -146,37 +147,65 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
     else:
         model.set_dump_image(dataset.dump_image)
 
-    for i in tqdm(range(lt), desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}'):
+    # Build all prompts first
+    todo_indices = []
+    todo_prompts = []
+    for i in range(lt):
         idx = data.iloc[i]['index']
         if idx in res:
             continue
-
         if hasattr(dataset, 'force_use_dataset_prompt') and dataset.force_use_dataset_prompt:
             struct = dataset.build_prompt(data.iloc[i])
         elif hasattr(model, 'use_custom_prompt') and model.use_custom_prompt(dataset_name):
             struct = model.build_prompt(data.iloc[i], dataset=dataset_name)
         else:
             struct = dataset.build_prompt(data.iloc[i])
+        todo_indices.append(idx)
+        todo_prompts.append(struct)
 
-        # If `SKIP_ERR` flag is set, the model will skip the generation if error is encountered
-        if os.environ.get('SKIP_ERR', False) == '1':
-            FAIL_MSG = 'Failed to obtain answer'
-            try:
-                response = model.generate(message=struct, dataset=dataset_name)
-            except RuntimeError as err:
-                torch.cuda.synchronize()
-                warnings.warn(f'{type(err)} {str(err)}')
-                response = f'{FAIL_MSG}: {type(err)} {str(err)}'
-        else:
-            response = model.generate(message=struct, dataset=dataset_name)
-        torch.cuda.empty_cache()
-
-        if verbose:
-            print(response, flush=True)
-
-        res[idx] = response
-        if (i + 1) % 10 == 0:
+    # Batched vLLM inference — send all prompts at once, let vLLM schedule
+    if todo_prompts and hasattr(model, 'generate_inner_vllm_batch'):
+        print(f'Batched vLLM inference: {len(todo_prompts)} samples for {dataset_name}')
+        try:
+            responses = model.generate_inner_vllm_batch(todo_prompts, dataset=dataset_name)
+            for j, resp in enumerate(responses):
+                res[todo_indices[j]] = resp
             dump(res, out_file)
+        except Exception as err:
+            warnings.warn(f'Batch inference failed: {err}. Falling back to per-sample.')
+            for j, prompt in enumerate(tqdm(todo_prompts,
+                                            desc=f'Fallback {model_name}/{dataset_name}')):
+                try:
+                    resp = model.generate(message=prompt, dataset=dataset_name)
+                except Exception as e2:
+                    resp = f'Failed to obtain answer: {e2}'
+                res[todo_indices[j]] = resp
+            dump(res, out_file)
+    else:
+        # Single-sample fallback
+        for i in tqdm(range(len(todo_prompts)),
+                      desc=f'Infer {model_name}/{dataset_name}, Rank {rank}/{world_size}'):
+            idx = todo_indices[i]
+            struct = todo_prompts[i]
+
+            if os.environ.get('SKIP_ERR', False) == '1':
+                FAIL_MSG = 'Failed to obtain answer'
+                try:
+                    response = model.generate(message=struct, dataset=dataset_name)
+                except RuntimeError as err:
+                    torch.cuda.synchronize()
+                    warnings.warn(f'{type(err)} {str(err)}')
+                    response = f'{FAIL_MSG}: {type(err)} {str(err)}'
+            else:
+                response = model.generate(message=struct, dataset=dataset_name)
+            torch.cuda.empty_cache()
+
+            if verbose:
+                print(response, flush=True)
+
+            res[idx] = response
+            if (i + 1) % 10 == 0:
+                dump(res, out_file)
 
     res = {k: res[k] for k in data_indices}
     dump(res, out_file)

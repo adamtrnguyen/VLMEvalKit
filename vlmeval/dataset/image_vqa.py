@@ -1667,7 +1667,7 @@ class LogicVista(ImageBaseDataset):
             'gpt-4-turbo': 'gpt4-turbo',
             'gpt-4o-mini': 'gpt4o-mini'
         }
-        name_str = name_str_map[model] if model in name_str_map else model
+        name_str = name_str_map[model] if model in name_str_map else model.replace('/', '_')
 
         if model == 'exact_matching':
             model = None
@@ -4236,7 +4236,7 @@ class CoreCognition(ImageBaseDataset):
         nproc = judge_kwargs.pop('nproc', 4)
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4', 'gpt-4o-mini': 'gpt4omini', 'gpt-4.1': 'gpt41'}
-        name_str = name_str_map[model] if model in name_str_map else model
+        name_str = name_str_map[model] if model in name_str_map else model.replace('/', '_')
 
         score_file = get_intermediate_file_path(eval_file, '_acc', 'csv')
         if osp.exists(score_file):

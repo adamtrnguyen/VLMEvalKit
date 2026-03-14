@@ -67,6 +67,7 @@ dependencies = [
     "rouge>=1.0.1",
     "ipdb>=0.13.13",
     "setuptools<81",
+    "vllm>=0.17",
 ]
 
 [project.scripts]

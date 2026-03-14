@@ -263,6 +263,8 @@ def main():
             timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
         )
 
+    all_results = {}  # {model_name: {dataset_name: eval_results_dict}}
+
     for _, model_name in enumerate(args.model):
         model = None
         date, commit_id = timestr('day'), githash(digits=8)
@@ -496,10 +498,12 @@ def main():
                         logger.info('Evaluation Results:')
                         if isinstance(eval_results, dict):
                             logger.info('\n' + json.dumps(eval_results, indent=4))
+                            all_results.setdefault(model_name, {})[dataset_name] = eval_results
                         elif isinstance(eval_results, pd.DataFrame):
                             if len(eval_results) < len(eval_results.columns):
                                 eval_results = eval_results.T
                             logger.info('\n' + tabulate(eval_results))
+                            all_results.setdefault(model_name, {})[dataset_name] = eval_results.to_dict()
 
                     # Restore the proxy
                     if eval_proxy is not None:
@@ -520,6 +524,13 @@ def main():
                 logger.exception(f'Model {model_name} x Dataset {dataset_name} combination failed: {e}, '
                                  'skipping this combination.')
                 continue
+
+    # Write aggregated results summary alongside the original per-benchmark files
+    if RANK == 0 and all_results:
+        summary_path = osp.join(args.work_dir, 'results.json')
+        with open(summary_path, 'w') as f:
+            json.dump(all_results, f, indent=2, default=str)
+        logger.info(f'Results summary written to {summary_path}')
 
     if WORLD_SIZE > 1:
         dist.destroy_process_group()
