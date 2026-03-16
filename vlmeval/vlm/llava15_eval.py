@@ -64,8 +64,7 @@ class LLaVA15Eval(BaseModel):
                 num_beams=1,
             )
 
-    @staticmethod
-    def _pad_to_square(image):
+    def _pad_to_square(self, image):
         """Pad image to square matching original LLaVA expand2square()."""
         from PIL import Image
 
@@ -73,8 +72,7 @@ class LLaVA15Eval(BaseModel):
         if w == h:
             return image
         s = max(w, h)
-        # CLIP image mean as background color (matches original LLaVA)
-        bg = (122, 116, 104)
+        bg = tuple(int(x * 255) for x in self.processor.image_processor.image_mean)
         result = Image.new("RGB", (s, s), bg)
         result.paste(image, ((s - w) // 2, (s - h) // 2))
         return result
