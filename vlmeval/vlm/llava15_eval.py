@@ -33,7 +33,7 @@ class LLaVA15Eval(BaseModel):
             else:
                 self.llm = LLM(
                     model=model_path,
-                    dtype="bfloat16",
+                    dtype="float16",
                     trust_remote_code=True,
                     limit_mm_per_prompt={"image": 5},
                 )
@@ -51,7 +51,7 @@ class LLaVA15Eval(BaseModel):
                 attn = {}
             model = LlavaForConditionalGeneration.from_pretrained(
                 model_path,
-                torch_dtype=torch.bfloat16,
+                torch_dtype=torch.float16,
                 low_cpu_mem_usage=True,
                 **attn,
             )
@@ -89,19 +89,11 @@ class LLaVA15Eval(BaseModel):
                 images.append(self._pad_to_square(img))
             elif item["type"] == "text":
                 prompt_parts.append(item["value"])
-        prompt = "\n".join(prompt_parts)
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    *[{"type": "image"} for _ in images],
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ]
-        text = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True, tokenize=False
-        )
+        # Build prompt manually to match original LLaVA format exactly:
+        # "USER: <image> <question> ASSISTANT:"
+        image_tokens = "<image> " * len(images)
+        text_content = "\n".join(prompt_parts)
+        text = f"USER: {image_tokens}{text_content} ASSISTANT:"
         return text, images
 
     def generate_inner(self, message, dataset=None):
