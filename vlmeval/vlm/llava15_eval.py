@@ -17,9 +17,10 @@ class LLaVA15Eval(BaseModel):
     _cached_llm = None
     _cached_model_path = None
 
-    def __init__(self, model_path, use_vllm=False, **kwargs):
+    def __init__(self, model_path, use_vllm=False, max_new_tokens=2048, **kwargs):
         self.model_path = model_path
         self.use_vllm = use_vllm
+        self.max_new_tokens = max_new_tokens
 
         if self.use_vllm:
             from vllm import LLM
@@ -27,10 +28,7 @@ class LLaVA15Eval(BaseModel):
 
             os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
             self.processor = AutoProcessor.from_pretrained(model_path)
-            if (
-                LLaVA15Eval._cached_llm is not None
-                and LLaVA15Eval._cached_model_path == model_path
-            ):
+            if LLaVA15Eval._cached_llm is not None and LLaVA15Eval._cached_model_path == model_path:
                 self.llm = LLaVA15Eval._cached_llm
             else:
                 self.llm = LLM(
@@ -47,6 +45,7 @@ class LLaVA15Eval(BaseModel):
             self.processor = AutoProcessor.from_pretrained(model_path)
             try:
                 import flash_attn  # noqa: F401
+
                 attn = {"attn_implementation": "flash_attention_2"}
             except ImportError:
                 attn = {}
@@ -60,7 +59,7 @@ class LLaVA15Eval(BaseModel):
             self.hf_kwargs = dict(
                 do_sample=False,
                 temperature=0,
-                max_new_tokens=128,
+                max_new_tokens=self.max_new_tokens,
                 top_p=None,
                 num_beams=1,
             )
@@ -118,7 +117,7 @@ class LLaVA15Eval(BaseModel):
         for msg in messages:
             text, images = self._parse_message(msg)
             inputs.append({"prompt": text, "multi_modal_data": {"image": images}})
-        sampling_params = SamplingParams(temperature=0, max_tokens=128)
+        sampling_params = SamplingParams(temperature=0, max_tokens=self.max_new_tokens)
         outputs = self.llm.generate(inputs, sampling_params=sampling_params)
         return [out.outputs[0].text for out in outputs]
 
@@ -126,7 +125,7 @@ class LLaVA15Eval(BaseModel):
         from vllm import SamplingParams
 
         text, images = self._parse_message(message)
-        sampling_params = SamplingParams(temperature=0, max_tokens=128)
+        sampling_params = SamplingParams(temperature=0, max_tokens=self.max_new_tokens)
         outputs = self.llm.generate(
             {"prompt": text, "multi_modal_data": {"image": images}},
             sampling_params=sampling_params,
@@ -135,12 +134,10 @@ class LLaVA15Eval(BaseModel):
 
     def _generate_hf(self, message, dataset=None):
         text, images = self._parse_message(message)
-        inputs = self.processor(
-            text=text, images=images or None, return_tensors="pt"
-        ).to(self.model.device)
+        inputs = self.processor(text=text, images=images or None, return_tensors="pt").to(
+            self.model.device
+        )
         with torch.no_grad():
             output = self.model.generate(**inputs, **self.hf_kwargs)
         input_len = inputs["input_ids"].shape[1]
-        return self.processor.decode(
-            output[0][input_len:], skip_special_tokens=True
-        )
+        return self.processor.decode(output[0][input_len:], skip_special_tokens=True)
